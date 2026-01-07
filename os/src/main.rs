@@ -29,6 +29,7 @@ mod plic;
 mod sbi;
 mod syscall;
 mod task;
+mod waker;
 mod timer;
 mod trap;
 #[macro_use]

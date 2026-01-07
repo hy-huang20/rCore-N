@@ -53,9 +53,10 @@ pub fn set_next_trigger() {
 
 lazy_static! {
     pub static ref TIMER_MAP: [Arc<Mutex<BTreeMap<usize, usize>>>; CPU_NUM] = Default::default();
+    pub static ref ASYNC_TIMER: Mutex<Arc<AsyncTimer>> = Mutex::new(Arc::new(AsyncTimer::new()));
 }
 
-pub fn set_virtual_timer(mut time: usize, pid: usize) {
+pub async fn set_virtual_timer(mut time: usize, pid: usize) {
     if time < time::read() {
         warn!("Time travel!");
         // return;
@@ -68,6 +69,88 @@ pub fn set_virtual_timer(mut time: usize, pid: usize) {
     if let Some((timer_min, _)) = timer_map.first_key_value() {
         if time == *timer_min {
             set_timer(time);
+
+            // future 创建后首次 poll
+            let async_timer = ASYNC_TIMER.lock().clone();
+            async_timer.get_async_timer(time).await;
         }
+    }
+}
+
+// ==========================================
+
+use alloc::collections::VecDeque;
+use alloc::boxed::Box;
+use xmas_elf::sections::{Rel, Rela};
+use core::{convert::Infallible, pin::Pin};
+use core::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize};
+use core::sync::atomic::Ordering::Relaxed;
+use core::future::Future;
+use core::task::{Context, Poll, Waker};
+
+use crate::task::{AsyncTimerExecutor, AsyncTask};
+use crate::waker::from_task;
+
+pub struct AsyncTimer {
+    last_time: AtomicU32,
+    wakers: Mutex<VecDeque<Waker>>,
+    executor: AsyncTimerExecutor,
+}
+
+impl AsyncTimer {
+    pub fn new() -> Self {
+        AsyncTimer { 
+            last_time: AtomicU32::new(0),
+            wakers: Mutex::new(VecDeque::new()), 
+            executor: AsyncTimerExecutor::default(), 
+        }
+    }
+
+    pub fn interrupt_handler(&self, new_time: usize) {
+        self.last_time.store(new_time as u32, Relaxed);
+        while let Some(waker) = self.wakers.lock().pop_front(){
+            waker.wake();
+        };
+        self.executor.run_until_idle();
+    }
+
+    pub async fn get_async_timer(self: Arc<Self>, time: usize) {
+        let timer_future = AsyncTimerFuture {
+            time,
+            driver: self.clone(),
+        };
+        let task = AsyncTask::new(Box::pin(timer_future), self.clone());
+        self.register_waker(unsafe {
+            from_task(task.clone())
+        });
+        self.executor.push_task(AsyncTask::from_ref(task));
+    }
+
+    pub fn register_waker(&self, waker: Waker) {
+        self.wakers.lock().push_back(waker)
+    }
+
+    pub fn try_get_async_timer(&self) -> Option<usize> {
+        Some(self.last_time.load(Relaxed) as usize)
+    }
+}
+
+pub struct AsyncTimerFuture {
+    time: usize,
+    driver: Arc<AsyncTimer>,
+}
+
+unsafe impl Send for AsyncTimerFuture {}
+unsafe impl Sync for AsyncTimerFuture {}
+
+impl Future for AsyncTimerFuture {
+    type Output = ();
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        if let Some(cur_time) = self.driver.try_get_async_timer() {
+            if cur_time >= self.time {
+                return Poll::Ready(());
+            }
+        }
+        Poll::Pending
     }
 }
