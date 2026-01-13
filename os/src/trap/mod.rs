@@ -54,7 +54,7 @@ fn set_user_trap_entry() {
 
 /// rcoren 中 timer 原处理逻辑
 #[no_mangle]
-pub async fn timer_interrupt_handler(hart_id: usize) -> usize {
+pub fn timer_interrupt_handler(hart_id: usize) -> usize {
     let mut timer_map = TIMER_MAP[hart_id].lock();
     let mut cur_time: usize = 0;
     while let Some((this_time, pid)) = timer_map.pop_first() {
@@ -62,9 +62,8 @@ pub async fn timer_interrupt_handler(hart_id: usize) -> usize {
         if let Some((next_time, _)) = timer_map.first_key_value() {
             set_timer(*next_time);
 
-            // future 创建后首次 poll
             let async_timer = ASYNC_TIMER.lock().clone();
-            async_timer.get_async_timer(*next_time).await;
+            async_timer.set_async_timer(*next_time);
         }
         drop(timer_map);
         if pid == 0 {
@@ -99,7 +98,7 @@ pub async fn timer_interrupt_handler(hart_id: usize) -> usize {
 }
 
 #[no_mangle]
-pub async fn trap_handler() -> ! {
+pub fn trap_handler() -> ! {
     set_kernel_trap_entry();
     let scause = scause::read();
     let stval = stval::read();
@@ -153,13 +152,11 @@ pub async fn trap_handler() -> ! {
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
             // let current_time = time::read();
-            let this_time = timer_interrupt_handler(hart_id()).await;
+            let this_time = timer_interrupt_handler(hart_id());
 
+            // wake
             let mut async_timer = ASYNC_TIMER.lock().clone();
             async_timer.interrupt_handler(this_time);
-
-            // 再次 poll future
-            async_timer.get_async_timer(this_time).await;
         }
         Trap::Interrupt(Interrupt::SupervisorExternal) => {
             // debug!("Supervisor External");

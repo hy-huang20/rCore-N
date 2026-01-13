@@ -56,7 +56,7 @@ lazy_static! {
     pub static ref ASYNC_TIMER: Mutex<Arc<AsyncTimer>> = Mutex::new(Arc::new(AsyncTimer::new()));
 }
 
-pub async fn set_virtual_timer(mut time: usize, pid: usize) {
+pub fn set_virtual_timer(mut time: usize, pid: usize) {
     if time < time::read() {
         warn!("Time travel!");
         // return;
@@ -70,9 +70,8 @@ pub async fn set_virtual_timer(mut time: usize, pid: usize) {
         if time == *timer_min {
             set_timer(time);
 
-            // future 创建后首次 poll
             let async_timer = ASYNC_TIMER.lock().clone();
-            async_timer.get_async_timer(time).await;
+            async_timer.set_async_timer(time);
         }
     }
 }
@@ -106,15 +105,17 @@ impl AsyncTimer {
         }
     }
 
+    /// 在 os 的 trap_handler 中调用
     pub fn interrupt_handler(&self, new_time: usize) {
         self.last_time.store(new_time as u32, Relaxed);
         while let Some(waker) = self.wakers.lock().pop_front(){
             waker.wake();
         };
+        // poll future
         self.executor.run_until_idle();
     }
 
-    pub async fn get_async_timer(self: Arc<Self>, time: usize) {
+    pub fn set_async_timer(self: Arc<Self>, time: usize) {
         let timer_future = AsyncTimerFuture {
             time,
             driver: self.clone(),

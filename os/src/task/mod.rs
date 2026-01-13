@@ -214,7 +214,6 @@ pub fn wake_task(task_ref: AsyncTaskRef) {
         // 修改 Task 状态，等到接收到串口中断时，执行器会执行里面现有的就绪 Future
         let raw_ptr = task_ref.as_task_raw_ptr();
         (*raw_ptr).state.store(AsyncTaskState::Ready as u32, core::sync::atomic::Ordering::Relaxed);
-        debug!("[async timer] wake_task, the task is ready");
     }
 }
 
