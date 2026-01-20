@@ -147,6 +147,15 @@ unsafe impl Sync for AsyncTimerFuture {}
 impl Future for AsyncTimerFuture {
     type Output = ();
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        /* 
+        // 通过输出查看每次 poll 时 sp 是否变化
+        let current_sp: usize;
+        unsafe {
+            use core::arch::asm;
+            asm!("mv {}, sp", out(reg) current_sp);
+        }
+        debug!("future poll, sp: {:#x}", current_sp);
+        */
         if let Some(cur_time) = self.driver.try_get_async_timer() {
             if cur_time >= self.time {
                 return Poll::Ready(());
