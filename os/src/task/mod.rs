@@ -154,6 +154,9 @@ impl AsyncTaskRef {
     /// poll the task
     #[inline(always)]
     pub fn poll(self) -> Poll<()> {
+        if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
+            debug!("AsyncTaskRef::poll");
+        }
         unsafe {
             let waker = from_task(self.clone());
             let mut cx: Context<'_> = Context::from_waker(&waker);
@@ -210,6 +213,9 @@ impl AsyncTask {
 /// Wake a task by a 'AsyncTaskRef'
 #[inline(always)]
 pub fn wake_task(task_ref: AsyncTaskRef) {
+    if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
+        debug!("wake_task");
+    }
     unsafe {
         // 修改 Task 状态，等到接收到串口中断时，执行器会执行里面现有的就绪 Future
         let raw_ptr = task_ref.as_task_raw_ptr();
@@ -232,6 +238,9 @@ impl AsyncTimerExecutor {
     }
 
     pub fn pop_runnable_task(&self) -> Option<Arc<AsyncTask>> {
+        if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
+            debug!("AsyncTimerExecutor::pop_runnable_task");
+        }
         let mut tasks = self.tasks.lock();
         for i in 0..tasks.len() {
             let task = tasks.pop_front().unwrap();
@@ -245,6 +254,9 @@ impl AsyncTimerExecutor {
     }
 
     pub fn run_until_idle(&self) -> bool {
+        if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
+            debug!("AsyncTimerExecutor::run_until_idle");
+        }
         while let Some(task) = self.pop_runnable_task() {
             task.state.store(AsyncTaskState::Pending as u32, core::sync::atomic::Ordering::Relaxed);
             let task_ref = task.clone().as_ref();

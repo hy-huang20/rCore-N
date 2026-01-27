@@ -151,12 +151,17 @@ pub fn trap_handler() -> ! {
             exit_current_and_run_next(-3);
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
+            if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
+                debug!("trap_handler SupervisorTimer Interrupt");
+            }
             // let current_time = time::read();
             let this_time = timer_interrupt_handler(hart_id());
 
             // wake
             let mut async_timer = ASYNC_TIMER.lock().clone();
             async_timer.interrupt_handler(this_time);
+
+            crate::timer::DEBUG_ONCE.store(true, core::sync::atomic::Ordering::Relaxed);
         }
         Trap::Interrupt(Interrupt::SupervisorExternal) => {
             // debug!("Supervisor External");
