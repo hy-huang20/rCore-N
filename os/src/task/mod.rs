@@ -26,13 +26,33 @@ lazy_static! {
     pub static ref WAIT_LOCK: Mutex<()> = Mutex::new(());
 }
 
+pub fn block_current_and_run_next() {
+    let task = take_current_task().unwrap();
+    let mut task_inner = task.acquire_inner_lock();
+    let task_cx_ptr = task_inner.get_task_cx_ptr();
+    task_inner.task_status = TaskStatus::Blocked;
+    if let Some(trap_info) = &task_inner.user_trap_info {
+        trap_info.disable_user_ext_int();
+    }
+    task_inner.total_cpu_cycle_count += riscv::register::cycle::read() - task_inner.last_cpu_cycle;
+    drop(task_inner);
+    schedule(task_cx_ptr);
+}
+
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
-    let task = current_task().unwrap();
+    let task = take_current_task().unwrap();
     let mut task_inner = task.acquire_inner_lock();
     task_inner.time_intr_count += 1;
+    task_inner.task_status = TaskStatus::Ready;
+    if let Some(trap_info) = &task_inner.user_trap_info {
+        trap_info.disable_user_ext_int();
+    }
+    task_inner.total_cpu_cycle_count += riscv::register::cycle::read() - task_inner.last_cpu_cycle;
     let task_cx_ptr = task_inner.get_task_cx_ptr();
     drop(task_inner);
+
+    add_task(task);
 
     // jump to scheduling cycle
     schedule(task_cx_ptr);
@@ -47,6 +67,7 @@ pub fn exit_current_and_run_next(exit_code: i32) {
     // **** hold current PCB lock
     let wl = WAIT_LOCK.lock();
     let mut inner = task.acquire_inner_lock();
+    inner.total_cpu_cycle_count += riscv::register::cycle::read() - inner.last_cpu_cycle;
     info!(
         "pid: {} exited with code {}, time intr: {}, cycle count: {}",
         task.pid.0, exit_code, inner.time_intr_count, inner.total_cpu_cycle_count
@@ -101,169 +122,4 @@ lazy_static! {
 pub fn add_initproc() {
     debug!("add_initproc");
     add_task(INITPROC.clone());
-}
-
-// =================================
-
-use core::sync::atomic::AtomicU32;
-use core::future::Future;
-use core::ptr::NonNull;
-use core::task::{Context, Poll};
-use core::pin::Pin;
-
-use alloc::boxed::Box;
-
-use crossbeam::atomic::AtomicCell;
-
-use crate::timer::{AsyncTimer, AsyncTimerFuture};
-use crate::waker::from_task;
-
-/// 
-#[repr(u32)]
-pub enum AsyncTaskState {
-    ///
-    Ready = 1 << 0,
-    ///
-    Running = 1 << 1,
-    ///
-    Pending = 1 << 2,
-}
-
-/// The pointer of 'Task'
-#[derive(Debug, Clone)]
-pub struct AsyncTaskRef {
-    ptr: NonNull<AsyncTask>,
-}
-
-unsafe impl Send for AsyncTaskRef {}
-unsafe impl Sync for AsyncTaskRef {}
-
-impl AsyncTaskRef {
-    /// From a 'TaskRef' to a 'Task' raw_pointer
-    pub fn as_task_raw_ptr(&self) -> *const AsyncTask {
-        self.ptr.as_ptr()
-    }
-
-    /// From a 'Task' raw_pointer to a 'TaskRef'
-    pub(crate) unsafe fn from_ptr(ptr: *const AsyncTask) -> Self {
-        Self {
-            ptr: NonNull::new(ptr as *mut AsyncTask).unwrap(),
-        }
-    }
-
-    /// poll the task
-    #[inline(always)]
-    pub fn poll(self) -> Poll<()> {
-        if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
-            debug!("AsyncTaskRef::poll");
-        }
-        unsafe {
-            let waker = from_task(self.clone());
-            let mut cx: Context<'_> = Context::from_waker(&waker);
-            let task = AsyncTask::from_ref(self);
-            let future = &mut *task.fut.as_ptr();
-            match future.as_mut().poll(&mut cx) {
-                Poll::Ready(res) => Poll::Ready(res),
-                Poll::Pending => {
-                    task.state.store(AsyncTaskState::Pending as u32, core::sync::atomic::Ordering::Relaxed);
-                    task.driver.register_waker(waker);
-                    Poll::Pending
-                },
-            }
-        }
-    }
-}
-
-
-pub struct AsyncTask {
-    /// detail value shown in 'AsyncTaskRef'
-    pub(crate) state: AtomicU32,
-    /// The task future
-    pub fut: AtomicCell<Pin<Box<dyn Future<Output = ()> + 'static + Send + Sync>>>,
-    /// driver
-    pub driver: Arc<AsyncTimer>,
-}
-
-impl AsyncTask {
-    /// Create a new Task 
-    pub fn new(
-        fut: Pin<Box<dyn Future<Output = ()> + 'static + Send + Sync>>,
-        driver: Arc<AsyncTimer>,
-    ) -> AsyncTaskRef {
-        let task = Arc::new(Self{
-            state: AtomicU32::new(AsyncTaskState::Ready as u32),
-            fut: AtomicCell::new(fut),
-            driver,
-        });
-        task.as_ref()
-    }
-
-    /// 
-    pub fn as_ref(self: Arc<Self>) -> AsyncTaskRef {
-        unsafe { AsyncTaskRef::from_ptr(Arc::into_raw(self))}
-    }
-
-    /// 
-    pub fn from_ref(task_ref: AsyncTaskRef) -> Arc<Self> {
-        let raw_ptr = task_ref.as_task_raw_ptr();
-        unsafe { Arc::from_raw(raw_ptr) }
-    }
-}
-
-/// Wake a task by a 'AsyncTaskRef'
-#[inline(always)]
-pub fn wake_task(task_ref: AsyncTaskRef) {
-    if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
-        debug!("wake_task");
-    }
-    unsafe {
-        // 修改 Task 状态，等到接收到串口中断时，执行器会执行里面现有的就绪 Future
-        let raw_ptr = task_ref.as_task_raw_ptr();
-        (*raw_ptr).state.store(AsyncTaskState::Ready as u32, core::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-#[derive(Default)]
-pub struct AsyncTimerExecutor {
-    tasks: Mutex<VecDeque<Arc<AsyncTask>>>,
-}
-
-impl AsyncTimerExecutor {
-    pub fn is_empty(&self) -> bool {
-        self.tasks.lock().is_empty()
-    }
-
-    pub fn push_task(&self, task: Arc<AsyncTask>) {
-        self.tasks.lock().push_back(task);
-    }
-
-    pub fn pop_runnable_task(&self) -> Option<Arc<AsyncTask>> {
-        if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
-            debug!("AsyncTimerExecutor::pop_runnable_task");
-        }
-        let mut tasks = self.tasks.lock();
-        for i in 0..tasks.len() {
-            let task = tasks.pop_front().unwrap();
-            let tstate = task.state.load(core::sync::atomic::Ordering::Relaxed);
-            if tstate == AsyncTaskState::Ready as u32 {
-                return Some(task)
-            }
-            tasks.push_back(task);
-        }
-        None
-    }
-
-    pub fn run_until_idle(&self) -> bool {
-        if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
-            debug!("AsyncTimerExecutor::run_until_idle");
-        }
-        while let Some(task) = self.pop_runnable_task() {
-            task.state.store(AsyncTaskState::Pending as u32, core::sync::atomic::Ordering::Relaxed);
-            let task_ref = task.clone().as_ref();
-            if task_ref.poll() == Poll::Pending {
-                self.push_task(task)
-            }
-        }
-        !self.is_empty()
-    }
 }

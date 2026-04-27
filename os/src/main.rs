@@ -29,12 +29,13 @@ mod plic;
 mod sbi;
 mod syscall;
 mod task;
-mod waker;
 mod timer;
 mod trap;
 #[macro_use]
 mod uart;
 mod trace;
+
+mod async_timer;
 
 global_asm!(include_str!("entry.asm"));
 global_asm!(include_str!("link_app.asm"));
@@ -107,7 +108,8 @@ pub fn rust_main(hart_id: usize) -> ! {
 
     println_hart!("Hello", hart_id);
 
-    timer::set_next_trigger();
+    // timer::set_next_trigger();
+    async_timer::start_os_tick();
 
     if hart_id == 0 {
         loader::list_apps();

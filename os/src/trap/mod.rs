@@ -2,14 +2,14 @@ mod context;
 mod usertrap;
 
 use crate::config::{TRAMPOLINE, TRAP_CONTEXT};
-use crate::{plic, timer};
+use crate::{async_timer, plic, timer};
 use crate::sbi::set_timer;
 use crate::syscall::syscall;
 use crate::task::{
     current_task, current_trap_cx, current_user_token, exit_current_and_run_next, hart_id,
     suspend_current_and_run_next,
 };
-use crate::timer::{ASYNC_TIMER, AsyncTimerFuture, TIMER_MAP, get_time_us, set_next_trigger};
+use crate::timer::get_time_us;
 use crate::trace::{push_trace, S_TRAP_HANDLER, S_TRAP_RETURN};
 use core::arch::{asm, global_asm};
 use core::panic;
@@ -19,6 +19,7 @@ use riscv::register::{
     scause::{self, Exception, Interrupt, Trap},
     sepc, sideleg, sie, sip, sstatus, stval, stvec,
 };
+use core::sync::atomic::Ordering;
 
 global_asm!(include_str!("trap.asm"));
 
@@ -53,49 +54,42 @@ fn set_user_trap_entry() {
 }
 
 /// rcoren 中 timer 原处理逻辑
-#[no_mangle]
-pub fn timer_interrupt_handler(hart_id: usize) -> usize {
-    let mut timer_map = TIMER_MAP[hart_id].lock();
-    let mut cur_time: usize = 0;
-    while let Some((this_time, pid)) = timer_map.pop_first() {
-        cur_time = this_time;
-        if let Some((next_time, _)) = timer_map.first_key_value() {
-            set_timer(*next_time);
-
-            let async_timer = ASYNC_TIMER.lock().clone();
-            async_timer.set_async_timer(*next_time);
-        }
-        drop(timer_map);
-        if pid == 0 {
-            set_next_trigger();
-            // static mut CNT: usize = 0;
-            // unsafe {
-            //     CNT += 1;
-            //     if CNT > 6000 {
-            //         debug!("kernel tick");
-            //         CNT = 0;
-            //     }
-            // }
-            suspend_current_and_run_next();
-        } else if pid == current_task().unwrap().pid.0 {
-            debug!("set UTIP for pid {}", pid);
-            unsafe {
-                sip::set_utimer();
-            }
-        } else {
-            let _ = push_trap_record(
-                pid,
-                UserTrapRecord {
-                    cause: 4,
-                    message: get_time_us(),
-                },
-            );
-        }
-        break;
-    }
-    
-    cur_time
-}
+// #[no_mangle]
+// pub fn timer_interrupt_handler(hart_id: usize) {
+//     let mut timer_map = TIMER_MAP[hart_id].lock();
+//     while let Some((_, pid)) = timer_map.pop_first() {
+//         if let Some((next_time, _)) = timer_map.first_key_value() {
+//             set_timer(*next_time);
+//         }
+//         drop(timer_map);
+//         if pid == 0 {
+//             set_next_trigger();
+//             // static mut CNT: usize = 0;
+//             // unsafe {
+//             //     CNT += 1;
+//             //     if CNT > 6000 {
+//             //         debug!("kernel tick");
+//             //         CNT = 0;
+//             //     }
+//             // }
+//             suspend_current_and_run_next();
+//         } else if pid == current_task().unwrap().pid.0 {
+//             debug!("set UTIP for pid {}", pid);
+//             unsafe {
+//                 sip::set_utimer();
+//             }
+//         } else {
+//             let _ = push_trap_record(
+//                 pid,
+//                 UserTrapRecord {
+//                     cause: 4,
+//                     message: get_time_us(),
+//                 },
+//             );
+//         }
+//         break;
+//     }
+// }
 
 #[no_mangle]
 pub fn trap_handler() -> ! {
@@ -151,25 +145,18 @@ pub fn trap_handler() -> ! {
             exit_current_and_run_next(-3);
         }
         Trap::Interrupt(Interrupt::SupervisorTimer) => {
-            if !crate::timer::DEBUG_ONCE.load(core::sync::atomic::Ordering::Relaxed) {
-                debug!("trap_handler SupervisorTimer Interrupt");
-            }
-            // let current_time = time::read();
-            let this_time = timer_interrupt_handler(hart_id());
+            // timer_interrupt_handler(hart_id());
 
-            // wake
-            let mut async_timer = ASYNC_TIMER.lock().clone();
-            async_timer.interrupt_handler(this_time);
-
-            crate::timer::DEBUG_ONCE.store(true, core::sync::atomic::Ordering::Relaxed);
+            async_timer::async_timer_interrupt_handler();
         }
         Trap::Interrupt(Interrupt::SupervisorExternal) => {
             // debug!("Supervisor External");
             plic::handle_external_interrupt(hart_id());
         }
         Trap::Interrupt(Interrupt::SupervisorSoft) => {
-            // debug!("Supervisor Soft");
             unsafe { sip::clear_ssoft() }
+
+            // async_timer::executor_poll();
         }
         _ => {
             error!(

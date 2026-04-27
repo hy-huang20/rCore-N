@@ -3,6 +3,7 @@ const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
+const SYSCALL_SLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_SET_PRIORITY: usize = 140;
 const SYSCALL_GET_TIME: usize = 169;
@@ -25,10 +26,12 @@ const SYSCALL_SET_EXT_INT_ENABLE: usize = 604;
 
 mod fs;
 mod process;
+mod sync;
 
 use crate::trace::{push_trace, TRACE_SYSCALL_S_ENTER, TRACE_SYSCALL_S_EXIT};
 use fs::*;
 use process::*;
+use sync::*;
 
 pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
     trace!("syscall {}, args {:x?}", syscall_id, args);
@@ -58,6 +61,7 @@ pub fn syscall(syscall_id: usize, args: [usize; 3]) -> isize {
         SYSCALL_SET_TIMER => sys_set_timer(args[0]),
         SYSCALL_CLAIM_EXT_INT => sys_claim_ext_int(args[0]),
         SYSCALL_SET_EXT_INT_ENABLE => sys_set_ext_int_enable(args[0], args[1]),
+        SYSCALL_SLEEP => sys_sleep(args[0]),
         _ => panic!("Unsupported syscall_id: {}", syscall_id),
     };
     push_trace(TRACE_SYSCALL_S_EXIT + syscall_id);

@@ -6,10 +6,11 @@ use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next, hart_id, mmap, munmap,
     set_current_priority, suspend_current_and_run_next, WAIT_LOCK,
 };
-use crate::timer::get_time;
+use crate::timer::{get_time, get_time_us};
 use crate::trap::{push_trap_record, UserTrapRecord};
 use alloc::vec::Vec;
 use core::mem::size_of;
+use crate::async_timer;
 
 pub fn sys_exit(exit_code: i32) -> ! {
     exit_current_and_run_next(exit_code);
@@ -188,12 +189,36 @@ pub fn sys_send_msg(pid: usize, msg: usize) -> isize {
     }
 }
 
-pub fn sys_set_timer(time_us: usize) -> isize {
+// pub fn sys_set_timer(time_us: usize) -> isize {
+//     let pid = current_task().unwrap().pid.0;
+//     use crate::config::CLOCK_FREQ;
+//     use crate::timer::{set_virtual_timer, USEC_PER_SEC};
+//     let time = time_us * CLOCK_FREQ / USEC_PER_SEC;
+//     set_virtual_timer(time, pid);
+//     0
+// }
+
+pub fn sys_set_timer(time_us: usize) -> isize { // 参数是绝对时间
     let pid = current_task().unwrap().pid.0;
     use crate::config::CLOCK_FREQ;
-    use crate::timer::{set_virtual_timer, USEC_PER_SEC};
+    use crate::timer::USEC_PER_SEC;
     let time = time_us * CLOCK_FREQ / USEC_PER_SEC;
-    set_virtual_timer(time, pid);
+    async_timer::add_timer(time, move || {
+        if pid == current_task().unwrap().pid.0  {
+            debug!("set UTIP for pid {}", pid);
+            unsafe {
+                riscv::register::sip::set_utimer();
+            }
+        } else {
+            let _ = push_trap_record(
+                pid,
+                UserTrapRecord {
+                    cause: 4,
+                    message: get_time_us(),
+                },
+            );
+        }
+    });
     0
 }
 
