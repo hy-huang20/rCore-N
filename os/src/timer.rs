@@ -1,3 +1,4 @@
+use crate::async_timer;
 use crate::config::{CLOCK_FREQ, CPU_NUM};
 use crate::sbi::set_timer;
 use crate::task::{hart_id, suspend_current_and_run_next};
@@ -28,7 +29,8 @@ impl TimeVal {
 
 #[allow(unused_variables)]
 pub fn get_time(mut ts: Vec<*mut usize>, tz: usize) -> isize {
-    let t = time::read();
+    // let t = time::read();
+    let t = async_timer::now();
     unsafe {
         *ts[0] = t / CLOCK_FREQ;
         *ts[1] = (t % CLOCK_FREQ) * 1000000 / CLOCK_FREQ;
@@ -40,12 +42,14 @@ pub fn get_time(mut ts: Vec<*mut usize>, tz: usize) -> isize {
 
 #[allow(dead_code)]
 pub fn get_time_ms() -> usize {
-    time::read() / (CLOCK_FREQ / MSEC_PER_SEC)
+    // time::read() / (CLOCK_FREQ / MSEC_PER_SEC)
+    async_timer::now() / (CLOCK_FREQ / MSEC_PER_SEC)
 }
 
 #[allow(dead_code)]
 pub fn get_time_us() -> usize {
-    time::read() * USEC_PER_SEC / CLOCK_FREQ
+    // time::read() * USEC_PER_SEC / CLOCK_FREQ
+    async_timer::now() * USEC_PER_SEC / CLOCK_FREQ
 }
 
 // pub fn set_next_trigger() {

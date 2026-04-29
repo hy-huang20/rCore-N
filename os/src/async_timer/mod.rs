@@ -21,6 +21,7 @@ use timer::Timer;
 
 pub use task::poll as executor_poll;
 pub use time_driver::on_interrupt as on_timer_interrupt;
+pub use time_driver::now;
 
 pub fn after_ms(ms: usize, on_timeout: impl FnOnce() + Send + Sync + 'static) {
     task::spawn(async move {
