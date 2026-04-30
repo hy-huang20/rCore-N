@@ -182,6 +182,10 @@ pub fn sleep(period_ms: usize) {
     }
 }
 
+pub fn sleep_blocking(period_ms: usize) {
+    sys_sleep(period_ms);
+}
+
 pub fn mailread(buf: &mut [u8]) -> isize {
     sys_mailread(buf)
 }

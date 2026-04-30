@@ -11,6 +11,7 @@ const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
+const SYSCALL_SLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
@@ -124,6 +125,10 @@ pub fn sys_send_msg(pid: usize, msg: usize) -> isize {
 
 pub fn sys_set_timer(time_us: isize) -> isize {
     syscall(SYSCALL_SET_TIMER, [time_us as usize, 0, 0])
+}
+
+pub fn sys_sleep(period_ms: usize) -> isize {
+    syscall(SYSCALL_SLEEP, [period_ms, 0, 0])
 }
 
 pub fn sys_claim_ext_int(device_id: usize) -> isize {
