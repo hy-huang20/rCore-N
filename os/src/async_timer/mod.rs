@@ -24,22 +24,26 @@ pub use time_driver::on_interrupt as on_timer_interrupt;
 pub use time_driver::now;
 
 pub fn after_ms(ms: usize, on_timeout: impl FnOnce() + Send + Sync + 'static) {
+    // debug!("set ms await");
     task::spawn(async move {
         // Timer Future
         Timer::after_millis(ms).await;
-
+        // debug!("await end");
         // call back
         on_timeout();
+        // debug!("on_timeout end");
     });
 }
 
 pub fn after_ticks(ticks: usize, on_timeout: impl FnOnce() + Send + Sync + 'static) {
+    // debug!("set tick await");
     task::spawn(async move {
         // Timer Future
         Timer::after(ticks).await;
-
+        // debug!("await end");
         // call back
         on_timeout();
+        // debug!("on_timeout end");
     });
 }
 
@@ -58,6 +62,7 @@ lazy_static! {
 /// 在 rust_main 中调用一次
 /// 启动 os 时间片
 pub fn start_os_tick() {
+    // debug!("start os tick");
     after_ticks(CLOCK_FREQ / TICKS_PER_SEC, next_trigger);
 }
 

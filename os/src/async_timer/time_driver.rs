@@ -70,13 +70,16 @@ impl Driver for TimerDriver {
     }
 
     fn schedule_wake(&self, at: usize, waker: &Waker) {
+        // debug!("[TIMERDRIVER] schedule_wake");
         let mut queue = self.queue.borrow_mut();
         if queue.schedule_wake(at, waker) {
             let mut next = queue.next_expiration(self.now());
             while !self.set_alarm(next) {
+                // debug!("into while loop");
                 next = queue.next_expiration(self.now());
             }
         }
+        // debug!("[TIMERDRIVER] schedule_wake end");
     }
 }
 
@@ -96,8 +99,10 @@ impl TimerDriver {
         self.alarms.timestamp.set(timestamp);
         sbi::set_timer(timestamp);
 
+        // debug!("set {} now {}", timestamp, self.now());
         // 不建议在一开始就比较
         if timestamp <= self.now() {
+            // debug!("handle immediately");
             sbi::set_timer(usize::MAX);
             self.alarms.timestamp.set(usize::MAX);
             // 表示需要立刻处理
@@ -124,5 +129,6 @@ impl TimerDriver {
 
 /// 中断到来时调用
 pub fn on_interrupt() {
+    // debug!("[TIMERDRIVER] on_interrupt");
     DRIVER[hart_id()].check_alarm();
 }

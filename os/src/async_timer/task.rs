@@ -55,6 +55,7 @@ impl TaskRef {
     /// Polls the task once with the executor-managed waker.
     #[inline(always)]
     pub fn poll(self) -> Poll<()> {
+        // debug!("[TASKREF] poll");
         let waker = unsafe { from_task(self.clone()) };
         let mut cx = Context::from_waker(&waker);
         let task = TaskHeader::from_ref(self);
@@ -126,6 +127,7 @@ impl TaskHeader {
 /// Wake a task through a `TaskRef`.
 #[inline(always)]
 pub fn wake_task(task_ref: TaskRef) {
+    // debug!("wake_task");
     unsafe {
         let raw_ptr = task_ref.as_task_raw_ptr();
         let old = (*raw_ptr).state.swap(TaskState::Ready as u32, Ordering::Relaxed);
@@ -170,6 +172,7 @@ impl Executor {
         &self,
         fut: Pin<Box<dyn Future<Output = ()> + Send + Sync + 'static>>,
     ) -> Arc<TaskHeader> {
+        // debug!("[EXECUTOR] spawn");
         let task = TaskHeader::from_ref(TaskHeader::new(fut));
         self.push_task(task.clone());
         // __pender();
@@ -195,6 +198,7 @@ impl Executor {
     ///
     /// Returns `true` if there are still pending tasks waiting on a wakeup.
     pub fn poll(&self) -> bool {
+        // debug!("[EXECUTOR] poll");
         while let Some(task) = self.pop_runnable_task() {
             let task_ref = task.clone().as_ref();
             if task_ref.poll() == Poll::Pending {

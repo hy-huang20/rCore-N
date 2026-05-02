@@ -76,10 +76,11 @@ impl GenericQueue {
     /// Dequeues expired timers and returns the next alarm time.
     pub fn next_expiration(&mut self, now: usize) -> usize {
         let mut next_alarm = usize::MAX;
-
+        // debug!("queue len: {}", self.queue.len());
         let mut i = 0;
         while i < self.queue.len() {
             let timer = &self.queue[i];
+            // debug!("timer.at {} now {}", timer.at, now);
             if timer.at <= now {
                 let timer = self.queue.swap_remove(i);
                 timer.waker.wake();
@@ -88,7 +89,7 @@ impl GenericQueue {
                 i += 1;
             }
         }
-
+        // debug!("queue len: {}", self.queue.len());
         next_alarm
     }
 }
@@ -111,11 +112,13 @@ impl Queue {
     /// If this function returns `true`, the called should find the next expiration time and set
     /// a new alarm for that time.
     pub fn schedule_wake(&mut self, at: usize, waker: &Waker) -> bool {
+        // debug!("[QUEUE] schedule_wake");
         self.queue.schedule_wake(at, waker)
     }
 
     /// Dequeues expired timers and returns the next alarm time.
     pub fn next_expiration(&mut self, now: usize) -> usize {
+        // debug!("[QUEUE] next_expiration");
         self.queue.next_expiration(now)
     }
 }

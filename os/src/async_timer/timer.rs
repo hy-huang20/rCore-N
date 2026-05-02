@@ -38,6 +38,7 @@ impl Unpin for Timer {}
 impl Future for Timer {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        // debug!("[TIMER] poll");
         if self.yielded_once && self.expires_at <= time_driver::now() {
             Poll::Ready(())
         } else {
