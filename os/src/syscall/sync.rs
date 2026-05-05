@@ -1,18 +1,22 @@
+use core::sync::atomic::{AtomicBool, Ordering};
+use alloc::sync::Arc;
+
 use crate::async_timer;
 use crate::task::{
-    add_task, block_current_and_run_next, current_task, TaskStatus,
+    add_task, suspend_current_and_run_next, current_task, TaskStatus,
 };
 
 /// sleep syscall
 pub fn sys_sleep(ms: usize) -> isize {
     // debug!("sys_sleep after {} ms", ms);
-    let tcb = current_task().unwrap();
+    let is_timeout_r = Arc::new(AtomicBool::new(false));
+    let is_timeout_w = Arc::clone(&is_timeout_r);
     async_timer::after_ms(ms, move || {
-        let mut task_inner = tcb.acquire_inner_lock();
-        task_inner.task_status = TaskStatus::Ready;
-        drop(task_inner);
-        add_task(tcb);
+        is_timeout_w.store(true, Ordering::Relaxed);
     });
-    block_current_and_run_next();
+    // 为了不在中断上下文 add_task() 获取 TASK_POOL 锁也只能这么妥协实现了
+    while !is_timeout_r.load(Ordering::Relaxed) {
+        suspend_current_and_run_next();
+    }
     0
 }

@@ -26,33 +26,13 @@ lazy_static! {
     pub static ref WAIT_LOCK: Mutex<()> = Mutex::new(());
 }
 
-pub fn block_current_and_run_next() {
-    let task = take_current_task().unwrap();
-    let mut task_inner = task.acquire_inner_lock();
-    let task_cx_ptr = task_inner.get_task_cx_ptr();
-    task_inner.task_status = TaskStatus::Blocked;
-    if let Some(trap_info) = &task_inner.user_trap_info {
-        trap_info.disable_user_ext_int();
-    }
-    task_inner.total_cpu_cycle_count += riscv::register::cycle::read() - task_inner.last_cpu_cycle;
-    drop(task_inner);
-    schedule(task_cx_ptr);
-}
-
 pub fn suspend_current_and_run_next() {
     // There must be an application running.
-    let task = take_current_task().unwrap();
+    let task = current_task().unwrap();
     let mut task_inner = task.acquire_inner_lock();
     task_inner.time_intr_count += 1;
-    task_inner.task_status = TaskStatus::Ready;
-    if let Some(trap_info) = &task_inner.user_trap_info {
-        trap_info.disable_user_ext_int();
-    }
-    task_inner.total_cpu_cycle_count += riscv::register::cycle::read() - task_inner.last_cpu_cycle;
     let task_cx_ptr = task_inner.get_task_cx_ptr();
     drop(task_inner);
-
-    add_task(task);
 
     // jump to scheduling cycle
     schedule(task_cx_ptr);

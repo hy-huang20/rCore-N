@@ -95,12 +95,33 @@ impl Processor {
         }
     }
 
+    fn suspend_current(&self) {
+        trace!("[suspend current]");
+        if let Some(task) = take_current_task() {
+            // ---- hold current PCB lock
+            // push_trace(SUSPEND_CURRENT + task.getpid());
+            let mut task_inner = task.acquire_inner_lock();
+            // Change status to Ready
+            task_inner.task_status = TaskStatus::Ready;
+            if let Some(trap_info) = &task_inner.user_trap_info {
+                trap_info.disable_user_ext_int();
+            }
+            task_inner.total_cpu_cycle_count += cycle::read() - task_inner.last_cpu_cycle;
+            drop(task_inner);
+            // ---- release current PCB lock
+
+            // push back to ready queue.
+            add_task(task);
+        }
+    }
+
     pub fn run(&self) {
         loop {
             if let Some(task) = fetch_task() {
                 // unsafe { riscv::asm::sfence_vma_all() }
                 self.run_next(task);
                 // __switch inside run_next
+                self.suspend_current();
             }
         }
     }
