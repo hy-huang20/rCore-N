@@ -175,11 +175,16 @@ pub fn waitpid(pid: usize, exit_code: &mut i32) -> isize {
         }
     }
 }
+
+// pub fn sleep(period_ms: usize) {
+//     let start = get_time();
+//     while get_time() < start + period_ms as isize {
+//         // sys_yield();
+//     }
+// }
+
 pub fn sleep(period_ms: usize) {
-    let start = get_time();
-    while get_time() < start + period_ms as isize {
-        // sys_yield();
-    }
+    sleep_blocking(period_ms);
 }
 
 pub fn sleep_blocking(period_ms: usize) {

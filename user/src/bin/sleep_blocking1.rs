@@ -10,15 +10,13 @@ use user_lib::{getpid, get_time, sleep_blocking, spawn, waitpid};
 #[no_mangle]
 pub fn main() -> i32 {
     println!("[sleep blocking 1] from pid: {}", getpid());
+    const SLEEP_PROCESS_NUM: usize = 20;
+    let sleep_blocking_pid: [usize; SLEEP_PROCESS_NUM] =
+        array_init::array_init(|_| spawn("sleep_blocking\0") as usize);
     let mut exit_code: i32 = 0;
-    let pid1 = spawn("sleep_blocking\0") as usize;
-    let pid2 = spawn("sleep_blocking\0") as usize;
-    let pid3 = spawn("sleep_blocking\0") as usize;
-    let pid4 = spawn("sleep_blocking\0") as usize;
-    waitpid(pid1, &mut exit_code);
-    waitpid(pid2, &mut exit_code);
-    waitpid(pid3, &mut exit_code);
-    waitpid(pid4, &mut exit_code);
+    for i in 0..SLEEP_PROCESS_NUM {
+        waitpid(sleep_blocking_pid[i], &mut exit_code);
+    }
     println!("[sleep blocking 1] Test sleep blocking 1 finished!");
     0
 }
