@@ -10,11 +10,14 @@ const MAX_USER_TRAP_NUM: usize = 128;
 
 use rv_plic::PLIC;
 
-use crate::trace::{push_trace, TRAP_QUEUE_ENTER, TRAP_QUEUE_EXIT, U_TRAP_HANDLER, U_TRAP_RETURN};
+use crate::trace::{
+    push_trace, PLIC_CLAIM, TRAP_QUEUE_ENTER, TRAP_QUEUE_EXIT, U_TRAP_HANDLER, U_TRAP_RETURN,
+};
 pub const PLIC_BASE: usize = 0xc00_0000;
 pub const PLIC_PRIORITY_BIT: usize = 3;
 pub type Plic = PLIC<PLIC_BASE, PLIC_PRIORITY_BIT>;
 
+#[inline]
 pub fn hart_id() -> usize {
     let hart_id: usize;
     unsafe {
@@ -23,6 +26,7 @@ pub fn hart_id() -> usize {
     hart_id
 }
 
+#[inline]
 pub fn get_context(hart_id: usize, mode: char) -> usize {
     const MODE_PER_HART: usize = 3;
     hart_id * MODE_PER_HART
@@ -90,6 +94,7 @@ pub fn user_trap_handler(cx: &mut UserTrapContext) -> &mut UserTrapContext {
         ucause::Trap::Interrupt(ucause::Interrupt::UserExternal) => {
             while let Some(irq) = Plic::claim(get_context(hart_id(), 'U')) {
                 // push_trace(U_TRAP_HANDLER | 8 | 128);
+                push_trace(PLIC_CLAIM | get_context(hart_id(), 'U'));
                 ext_intr_handler(irq, false);
             }
             // println!("[user trap] user external finished");
