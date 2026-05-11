@@ -28,6 +28,7 @@ mod serial_config {
     pub use uart8250::{uart::LSR, InterruptType, MmioUart8250};
     pub type SerialHardware = MmioUart8250<'static>;
     pub const FIFO_DEPTH: usize = 16;
+    pub const RTS_PULSE_WIDTH: usize = 8; // 加这行只是为了先通过编译
     pub const SERIAL_NUM: usize = 4;
     pub const SERIAL_BASE_ADDRESS: usize = 0x1000_2000;
     pub const SERIAL_ADDRESS_STRIDE: usize = 0x1000;
